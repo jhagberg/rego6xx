@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python
 
 # More information: http://rago600.sourceforge.net/
@@ -11,6 +12,7 @@ import datetime
 import time
 import logging
 import argparse
+import json
 
 def main():
     parser = argparse.ArgumentParser(description='Rego6xx reader', prog='rego6xx')
@@ -19,50 +21,64 @@ def main():
     parser.add_argument("--port", help="Which device serial port can be found on. Default: %(default)s", default="/dev/ttyUSB0")
     parser.add_argument('--debug', action='store_true', help='Print debug messages')
     parser.add_argument('--graphite', action='store_true', help='Display in Graphite readable format')
-    parser.add_argument('--sensor', action='append', help='Which sensor to read. Multiple sensor arguments can be added, such as "--sensor GT1 --sensor alarm".', required=True, choices=Rego.reg.keys())
+    parser.add_argument('--json', action='store_true', help='Display in json emoncms readable format')
+    parser.add_argument('--display', action='store_true', help='Read the display')
+    parser.add_argument('--sensor', action='append', help='Which sensor to read. Multiple sensor arguments can be added, such as "--sensor GT1 --sensor alarm".', choices=Rego.reg.keys())   
     parser.add_argument('--map-name', action='append', help='Map sensor name on output. Multiple map-name arguments can be added. Example: "--map-name GT2,outdoor --map-name PT1,motor"')
 
     args = parser.parse_args()
-
+    if not (args.sensor or args.display):
+        parser.error('No action requested, add --sensor GT1  or --display')
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     console = logging.StreamHandler()
     logging.getLogger('').addHandler(console)
 
-    map_name = dict()
-    if args.map_name:
-        for map in args.map_name:
-            try:
-                sensor,name = map.split(",")
-            except:
-                logger.warning("Could not parse '%s'" % map)
-                break
-            map_name[sensor] = name
-    
-    # calculate longest name so we can print pretty
-    name_length = max([len(x) for x in Rego.reg.keys()+map_name.values()])
-
-    timestamp = datetime.datetime.now().strftime("%s")
-
-    s = Rego(port=args.port)
-    for sensor in args.sensor:
-        if "GT" in sensor:
-            value = s.read_temperature(sensor)
-            if map_name.has_key(sensor): sensor = map_name[sensor]
-            print_line(sensor, "%.1f" % value, name_length, args.graphite, timestamp)
-	if "display" in sensor:
-	    value = s.read_sensor(sensor)
- 	    print value
-
-        else:
-            value = s.read_sensor(sensor)
-            if map_name.has_key(sensor): sensor = map_name[sensor]
-            if value:
-                print_line(sensor, "ON", name_length, args.graphite, timestamp)
-            else:
-                print_line(sensor, "OFF", name_length, args.graphite, timestamp)
+    if args.json:
+        print args.json
+        jsondata = {}
+    if args.display:
+        print "display"
    
-def print_line(sensor, value, name_length=10, graphite=False, timestamp=0):
+    if args.sensor:
+        map_name = dict()
+        if args.map_name:
+            for map in args.map_name:
+                try:
+                    sensor,name = map.split(",")
+                except:
+                    logger.warning("Could not parse '%s'" % map)
+                    break
+                map_name[sensor] = name
+    
+        # calculate longest name so we can print pretty
+        name_length = max([len(x) for x in Rego.reg.keys()+map_name.values()])
+
+        timestamp = datetime.datetime.now().strftime("%s")
+        s = Rego(port=args.port)
+        for sensor in args.sensor:
+            if "GT" in sensor:
+                value = s.read_temperature(sensor)
+                if map_name.has_key(sensor): sensor = map_name[sensor]
+                if args.json:
+                    jsondata[sensor]=value
+                else:  
+                    print_line(sensor, "%.1f" % value, name_length, args.graphite, timestamp)
+            else:
+                value = s.read_sensor(sensor)
+                if map_name.has_key(sensor): sensor = map_name[sensor]
+                if args.json:
+                    jsondata[sensor]=value
+                else:  
+                    if value:
+                        print_line(sensor, "ON", name_length, args.graphite, timestamp)
+                    else:
+                        print_line(sensor, "OFF", name_length, args.graphite, timestamp)
+    if args.json:
+        print json.dumps(jsondata)
+
+   
+def print_line(sensor, value, name_length=10, graphite=False, argjson=False, timestamp=0):
     if graphite:
         if value == "ON": value = 1
         if value == "OFF": value = 0
@@ -71,7 +87,6 @@ def print_line(sensor, value, name_length=10, graphite=False, timestamp=0):
         unit = "C"
         if value == "ON" or value == "OFF": unit = ""
         print u"%-*s = %s %s" % (name_length, sensor, value, unit)
-
 class Rego:
     ser = None
 
@@ -160,7 +175,7 @@ class Rego:
             return False
 
         logging.debug("Response '%s'" % data.encode("hex"))
-	print data
+#	print data
         return self._decode(data)
 
 if __name__ == "__main__":
