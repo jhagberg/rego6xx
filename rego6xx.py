@@ -50,6 +50,10 @@ def main():
             value = s.read_temperature(sensor)
             if map_name.has_key(sensor): sensor = map_name[sensor]
             print_line(sensor, "%.1f" % value, name_length, args.graphite, timestamp)
+	if "display" in sensor:
+	    value = s.read_sensor(sensor)
+ 	    print value
+
         else:
             value = s.read_sensor(sensor)
             if map_name.has_key(sensor): sensor = map_name[sensor]
@@ -57,7 +61,7 @@ def main():
                 print_line(sensor, "ON", name_length, args.graphite, timestamp)
             else:
                 print_line(sensor, "OFF", name_length, args.graphite, timestamp)
-
+   
 def print_line(sensor, value, name_length=10, graphite=False, timestamp=0):
     if graphite:
         if value == "ON": value = 1
@@ -91,6 +95,7 @@ class Rego:
         "VXV" : b'\x02\x05',
         "alarm" : b'\x02\x06',
         "heatpower" : b'\x00\x6c',
+	"display" : b'\x00\x00',
     }
 
     def __init__(self, port='/dev/ttyUSB0', baudrate=19200, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS, timeout=2):
@@ -155,6 +160,7 @@ class Rego:
             return False
 
         logging.debug("Response '%s'" % data.encode("hex"))
+	print data
         return self._decode(data)
 
 if __name__ == "__main__":
