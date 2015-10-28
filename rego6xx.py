@@ -13,6 +13,8 @@ import time
 import logging
 import argparse
 import json
+import urllib
+
 
 def main():
     parser = argparse.ArgumentParser(description='Rego6xx reader', prog='rego6xx')
@@ -22,24 +24,29 @@ def main():
     parser.add_argument('--debug', action='store_true', help='Print debug messages')
     parser.add_argument('--graphite', action='store_true', help='Display in Graphite readable format')
     parser.add_argument('--json', action='store_true', help='Display in json emoncms readable format')
+    parser.add_argument('--push', action='store_true', help="Pusch json data to webservice e.g emoncms")
+    parser.add_argument('--pushurl', help="Push to URL e.g emoncms. Default: %(default)s", default="http://localhost/input/post.json?node=3&apikey=&json={%s}" )
     parser.add_argument('--display', action='store_true', help='Read the display')
-    parser.add_argument('--sensor', action='append', help='Which sensor to read. Multiple sensor arguments can be added, such as "--sensor GT1 --sensor alarm".', choices=Rego.reg.keys())   
+    parser.add_argument('--sensor', action='append', help='Which sensor to read. Multiple sensor arguments can be added, such as "--sensor GT1 --sensor alarm".', choices=Rego.reg.keys().append(["all"]))   
     parser.add_argument('--map-name', action='append', help='Map sensor name on output. Multiple map-name arguments can be added. Example: "--map-name GT2,outdoor --map-name PT1,motor"')
 
     args = parser.parse_args()
+    if args.sensor:
+        if args.sensor[0]=="all":
+           args.sensor=Rego.reg.keys()
+   
     if not (args.sensor or args.display):
-        parser.error('No action requested, add --sensor GT1  or --display')
+        parser.error('No action requested, add --sensor GT1  or --display or --push')
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     console = logging.StreamHandler()
     logging.getLogger('').addHandler(console)
 
     if args.json:
-        print args.json
         jsondata = {}
     if args.display:
         print "display"
-   
+    
     if args.sensor:
         map_name = dict()
         if args.map_name:
@@ -56,19 +63,20 @@ def main():
 
         timestamp = datetime.datetime.now().strftime("%s")
         s = Rego(port=args.port)
+        
         for sensor in args.sensor:
             if "GT" in sensor:
                 value = s.read_temperature(sensor)
                 if map_name.has_key(sensor): sensor = map_name[sensor]
-                if args.json:
-                    jsondata[sensor]=value
+                if args.push:
+                    pushdata(args.pushurl,sensor,value)
                 else:  
                     print_line(sensor, "%.1f" % value, name_length, args.graphite, timestamp)
             else:
                 value = s.read_sensor(sensor)
                 if map_name.has_key(sensor): sensor = map_name[sensor]
-                if args.json:
-                    jsondata[sensor]=value
+                if args.push:
+                    pushdata(args.pushurl,sensor,value)
                 else:  
                     if value:
                         print_line(sensor, "ON", name_length, args.graphite, timestamp)
@@ -87,6 +95,20 @@ def print_line(sensor, value, name_length=10, graphite=False, argjson=False, tim
         unit = "C"
         if value == "ON" or value == "OFF": unit = ""
         print u"%-*s = %s %s" % (name_length, sensor, value, unit)
+
+
+def pushdata(url, input_name,data):
+        inputstring = input_name + ':' + str(data)
+        url = url % inputstring
+#       print url
+        wudata = urllib.urlopen(url)
+        response = wudata.read()
+        result = response.strip()
+        wudata.close()
+        return
+
+
+
 class Rego:
     ser = None
 
@@ -109,8 +131,8 @@ class Rego:
         "P2"  : b'\x02\x04',
         "VXV" : b'\x02\x05',
         "alarm" : b'\x02\x06',
-        "heatpower" : b'\x00\x6c',
-	"display" : b'\x00\x00',
+        "heatpower" : b'\x00\x6c'
+#	"display" : b'\x00\x00',
     }
 
     def __init__(self, port='/dev/ttyUSB0', baudrate=19200, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS, timeout=2):
