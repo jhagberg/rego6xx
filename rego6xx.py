@@ -46,24 +46,25 @@ def main():
         jsondata = {}
     if args.display:
         print "display"
-    
+    map_name = dict()
     if args.sensor:
-        map_name = dict()
+
         if args.map_name:
             for map in args.map_name:
                 try:
                     sensor,name = map.split(",")
                 except:
-                    logger.warning("Could not parse '%s'" % map)
+                    logging.warning("Could not parse '%s'" % map)
                     break
                 map_name[sensor] = name
+    
     
         # calculate longest name so we can print pretty
         name_length = max([len(x) for x in Rego.reg.keys()+map_name.values()])
 
         timestamp = datetime.datetime.now().strftime("%s")
-        s = Rego(port=args.port)
-        
+
+        s = Rego(port=args.port)      
         for sensor in args.sensor:
             if "GT" in sensor:
                 value = s.read_temperature(sensor)
@@ -137,13 +138,15 @@ class Rego:
 
     def __init__(self, port='/dev/ttyUSB0', baudrate=19200, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, bytesize=serial.EIGHTBITS, timeout=2):
         self.ser = serial.Serial(port=port, baudrate=baudrate, parity=parity, stopbits=stopbits, bytesize=bytesize, timeout=timeout)     
+        self.ser.flushInput()
+        self.ser.flushOutput()
         logging.info("Connected to: " + self.ser.portstr)
 
     def read_temperature(self, sensor):
         try:
             reg = self.reg[sensor]
         except:
-            logger.error("No such sensor")
+            logging.error("No such sensor")
             return False
         # make decimal:
         return float(self._read_reg(reg)) / float(10)
@@ -152,7 +155,7 @@ class Rego:
         try:
             reg = self.reg[sensor]
         except:
-            logger.error("No such sensor")
+            logging.error("No such sensor")
             return False
         return self._read_reg(reg)
 
@@ -168,8 +171,15 @@ class Rego:
         str = str + b'\x00\x00\x00' # data
         str = str + self._checksum(str[2:5])
      
-        self.ser.write(str)
-        return self._get_response()
+        # retry 25 times of invalid response:
+        for i in range(0,25):
+            self.ser.write(str)
+            r = self._get_response()
+            if r != None: break
+            logging.warning("Retry (%d) and flush" % i)
+            self.ser.flushInput()
+            self.ser.flushOutput()
+        return r
 
     def _decode(self, str):
         # convert from 7 bit to 8 bit:
@@ -188,13 +198,13 @@ class Rego:
         # 0x01, <3 byte data>, <checksum>
         # Example: 0x01 0x03 0x7c 0x1d 0x62
         r = self.ser.read(5)
-        if r[0] != "\x01" or len(r) != 5: 
+        if len(r) != 5 or r[0] != "\x01":
             logging.warning("Invalid response '%s'" % r.encode("hex"))
-            return False
+            return None
         data = r[1:4]
         if r[4] != self._checksum(data):
             logging.warning("Incorrect checksum '%s'" % r.encode("hex"))
-            return False
+            return None
 
         logging.debug("Response '%s'" % data.encode("hex"))
 #	print data
