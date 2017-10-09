@@ -14,6 +14,8 @@ import logging
 import argparse
 import json
 import urllib
+from influxdb import InfluxDBClient
+from influxdb import SeriesHelper
 
 
 def main():
@@ -24,8 +26,8 @@ def main():
     parser.add_argument('--debug', action='store_true', help='Print debug messages')
     parser.add_argument('--graphite', action='store_true', help='Display in Graphite readable format')
     parser.add_argument('--json', action='store_true', help='Display in json emoncms readable format')
-    parser.add_argument('--push', action='store_true', help="Pusch json data to webservice e.g emoncms")
-    parser.add_argument('--pushurl', help="Push to URL e.g emoncms. Default: %(default)s", default="http://localhost/input/post.json?node=3&apikey=&json={%s}" )
+    parser.add_argument('--influxdbhost', help="Specify inluxdb hostname  %(default)s", default="localhost" )
+    parser.add_argument('--influxdbname', help="Specify inluxdb db name  %(default)s", default="ivt" )
     parser.add_argument('--display', action='store_true', help='Read the display')
     parser.add_argument('--sensor', action='append', help='Which sensor to read. Multiple sensor arguments can be added, such as "--sensor GT1 --sensor alarm".', choices=Rego.reg.keys().append(["all"]))   
     parser.add_argument('--map-name', action='append', help='Map sensor name on output. Multiple map-name arguments can be added. Example: "--map-name GT2,outdoor --map-name PT1,motor"')
@@ -41,9 +43,11 @@ def main():
         logging.basicConfig(level=logging.DEBUG)
     console = logging.StreamHandler()
     logging.getLogger('').addHandler(console)
-
+    client = InfluxDBClient(args.influxdbhost, 8086,"root", "root", "ivt")
+    
     if args.json:
         jsondata = {}
+        jsondata["fields"]= {} 
     if args.display:
         print "display"
     map_name = dict()
@@ -64,25 +68,33 @@ def main():
 
         timestamp = datetime.datetime.now().strftime("%s")
 
-        s = Rego(port=args.port)      
+        s = Rego(port=args.port)
+        jsondata={}
+        jsondata["fields"]= {}
+        jsondata["measurement"]="ivt6"
         for sensor in args.sensor:
             if "GT" in sensor:
                 value = s.read_temperature(sensor)
                 if map_name.has_key(sensor): sensor = map_name[sensor]
-                if args.push:
-                    pushdata(args.pushurl,sensor,value)
+                if args.influxdbname:
+                     jsondata["fields"][sensor]=value
+#                     print json.dumps(jsondata)
+#                     client.write_points([jsondata])
                 else:  
                     print_line(sensor, "%.1f" % value, name_length, args.graphite, timestamp)
             else:
                 value = s.read_sensor(sensor)
                 if map_name.has_key(sensor): sensor = map_name[sensor]
-                if args.push:
-                    pushdata(args.pushurl,sensor,value)
+                if args.influxdbname:
+                     jsondata["fields"][sensor]=value
+#                     print json.dumps(jsondata)
+#                     client.write_points([jsondata])
                 else:  
                     if value:
                         print_line(sensor, "ON", name_length, args.graphite, timestamp)
                     else:
                         print_line(sensor, "OFF", name_length, args.graphite, timestamp)
+    client.write_points([jsondata])
     if args.json:
         print json.dumps(jsondata)
 
